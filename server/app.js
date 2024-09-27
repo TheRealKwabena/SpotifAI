@@ -61,7 +61,7 @@ const PORT = process.env.PORT || 3000;
 var dotenv = require('dotenv')
 var path = require("path");
 var cors = require("cors");
-
+var querystring = require("querystring")
 
 // Simple route
 app.get('/', (req, res) => {
@@ -73,6 +73,66 @@ app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
 
+const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
+const AUTH_URL = 'https://accounts.spotify.com/authorize';
+const TOKEN_URL = 'https://accounts.spotify.com/api/token';
+const PLAYLISTS_URL = 'https://api.spotify.com/v1/me/playlists';
+
+// tep 1: Redirect user to Spotify's authorization page
+app.post('/login', (req, res) => {
+  const scopes = 'playlist-read-private playlist-read-collaborative';
+  const authQueryParams = querystring.stringify({
+    response_type: 'code',
+    client_id: CLIENT_ID,
+    scope: scopes,
+    redirect_uri: REDIRECT_URI,
+  });
+  console.log(authQueryParams)
+  res.redirect(`${AUTH_URL}?${authQueryParams}`);
+});
+
+// Step 2: Spotify redirects to your callback URL with an authorization code
+app.get('/callback', async (req, res) => {
+  const code = req.query.code || null;
+  
+  try {
+    const tokenResponse = await axios.post(TOKEN_URL, querystring.stringify({
+      grant_type: 'authorization_code',
+      code: code,
+      redirect_uri: REDIRECT_URI,
+    }), {
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      }
+    });
+    
+    const accessToken = tokenResponse.data.access_token;
+    res.redirect(`/playlists?access_token=${accessToken}`);
+  } catch (error) {
+    console.error('Error fetching access token:', error);
+    res.send('Error during authentication.');
+  }
+});
+
+// Step 3: Use access token to fetch user playlists
+app.get('/playlists', async (req, res) => {
+  const accessToken = req.query.access_token;
+
+  try {
+    const playlistsResponse = await axios.get(PLAYLISTS_URL, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    res.json(playlistsResponse.data);
+  } catch (error) {
+    console.error('Error fetching playlists:', error);
+    res.send('Error fetching playlists.');
+  }
+});
 
 // Parse requests of content-type 'application/json'
 app.use(express.urlencoded({ extended: true }));
